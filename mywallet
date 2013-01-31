@@ -1,0 +1,200 @@
+#!/bin/sh
+
+
+ENC="openssl enc -e -rc4 -a -A -pass fd:4 -salt"
+DEC="openssl enc -d -rc4 -a -A -pass fd:4 -salt"
+RAND="openssl rand -hex 8"
+
+PASSWDFILE=$HOME/.mywallet
+TMP=$HOME/.mywallet.tmp
+touch $PASSWDFILE && chmod 600 $PASSWDFILE
+
+usage() {
+    echo "Usage: `basename $0` [ add | show | get | del ]"
+    exit
+}
+
+die() {
+    echo $1
+    cleanup
+    exit;
+}
+
+cleanup() {
+    rm -f $TMP
+}
+
+mytrap() {
+    cleanup
+    exit 0;
+}
+
+dec() {
+    local _domain _key _data _encdata _old _override _salt
+    _domain=$1
+    _salt=$2
+    _data=$3
+    stty -echo
+    read -p "Key: " _key
+    stty echo
+    echo
+    echo -n ${_data} | ( openssl enc -d -rc4 -a -A -pass fd:4 -salt 4<<EOP
+${_key}
+EOP
+) | sed -e "s/${_salt}//"
+}
+
+enc() {
+    local _domain _key _data _encdata _old _override _salt
+    _domain=$1
+    _key=$2
+    _data=$3
+    _old="`grep \"^${_domain} \" $PASSWDFILE`"
+    _override=0
+    if [ -n "${_old}" ]
+    then
+        echo
+        cat <<EOD
+${_old}
+EOD
+
+        echo
+        read -p "Override? [] " ANSWER
+        case $ANSWER in
+            [Yy][Ee][Ss])
+                _override=1
+            ;;
+
+            [Nn][Oo])
+                read -p "Add another? [] " ANSWER
+                case $ANSWER in
+                    [Yy][Ee][Ss])
+                        _override=0
+                    ;;
+
+                    [Nn][Oo])
+                        echo "No changes."
+                        return;
+                    ;;
+
+                    *)
+                        die "Sould be yes or no. No changes."
+                    ;;
+                esac
+            ;;
+
+            *)
+                die "Sould be yes or no. No changes."
+            ;;
+
+        esac
+    fi
+
+    if [ ${_override} -eq 1 ]
+    then
+        grep -v "${_domain}" $PASSWDFILE > $TMP
+    else
+        cat $PASSWDFILE > $TMP
+    fi
+    _salt="`$RAND`"
+    _encdata="${_domain} ${_salt} `echo -n \"${_salt}${_data}\" | ( openssl enc -e -rc4 -a -A -pass fd:4 -salt 4<<EOP
+${_key}
+EOP
+)`"
+    echo ${_encdata} >> $TMP
+    mv $TMP $PASSWDFILE
+}
+
+#
+# main
+#
+
+trap  mytrap SIGINT SIGTERM EXIT
+
+ossl=`which openssl 2>/dev/null`
+if test -z "$ossl" -o "$ossl" != "/usr/bin/openssl"
+then
+    die "Failed to find openssl."
+fi
+
+if ! [ -e $PASSWDFILE ]
+then
+    touch $PASSWDFILE && chmod 600 $PASSWDFILE
+else
+    [ "`stat -f '%p' $PASSWDFILE`" = "100600" ] || chmod  600 $PASSWDFILE
+fi
+
+_domain=
+_key=
+_data=
+
+args="`getopt '' $*`"
+if test $? -ne 0
+then
+    usage
+fi
+set -- $args
+for i
+do
+    case "$i" in
+
+        --)
+            shift;;
+
+        add)
+            read -p "Domain: " _domain
+            stty -echo
+            read -p "Key: " _key
+            stty echo
+            echo
+            stty -echo
+            read -p "Data: " _data
+            stty echo
+            echo
+            [ -n "${_domain}" -a -n "${_key}" -a -n "${_data}" ] \
+                || die "None of input should be empty."
+            enc "$_domain" "$_key" "$_data"
+        ;;
+
+        show)
+            read -p "Domain: [] " _domain
+            grep "^${_domain} " $PASSWDFILE
+        ;;
+
+        get)
+            read -p "Domain: [] " ANSWER
+            (
+                while read _domain _salt _data <&3
+                do
+                    if [ "$ANSWER" = "${_domain}" ]
+                    then
+                        dec "$_domain" "$_salt" "$_data" | cat -v
+                    fi
+                done
+            ) 3< $PASSWDFILE
+        ;;
+
+        del)
+            read -p "Domain: " _domain
+            if grep "^${_domain} " $PASSWDFILE
+            then
+                read -p "Delete? [No] " ANSWER
+                case $ANSWER in
+                    [Yy][Ee][Ss])
+                        grep -v "^${_domain} " $PASSWDFILE > $TMP
+                        mv $TMP $PASSWDFILE
+                    ;;
+                    *)
+                        echo "Not deleted."
+                    ;;
+                esac
+            fi
+        ;;
+
+        *)
+            usage
+
+    esac
+done
+
+cleanup
