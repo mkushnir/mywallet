@@ -92,7 +92,7 @@ EOD
             ;;
 
             [Nn][Oo])
-                read -p "Add another? [] " ANSWER
+                read -p "Confirm duplicate addition? [] " ANSWER
                 case $ANSWER in
                     [Yy][Ee][Ss])
                         _override=0
