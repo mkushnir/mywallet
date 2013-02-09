@@ -33,7 +33,6 @@ RAND="openssl rand -hex 8"
 
 PASSWDFILE=$HOME/.mywallet
 TMP=$HOME/.mywallet.tmp
-touch $PASSWDFILE && chmod 600 $PASSWDFILE
 
 usage() {
     echo "Usage: `basename $0` [ add | show | get | del ]"
@@ -147,7 +146,14 @@ if ! test -e $PASSWDFILE
 then
     touch $PASSWDFILE && chmod 600 $PASSWDFILE
 else
-    test "`stat -f '%p' $PASSWDFILE`" = "100600" || chmod  600 $PASSWDFILE
+    if ! test -f $PASSWDFILE
+    then
+        die "Not a file: $PASSWDFILE"
+    fi
+    if ! test "`stat -f '%p' $PASSWDFILE`" = "100600"
+    then
+        die "Invalid mode on $PASSWDFILE"
+    fi
 fi
 
 _domain=
