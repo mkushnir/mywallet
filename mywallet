@@ -136,10 +136,16 @@ EOP
 
 trap  mytrap SIGINT SIGTERM EXIT
 
+uname_s=`uname -s`
+if test "$uname_s" != 'FreeBSD'
+then
+    die "Not currently supported: $uname_s"
+fi
+
 ossl=`which openssl 2>/dev/null`
 if test -z "$ossl" -o "$ossl" != "/usr/bin/openssl"
 then
-    die "Failed to find openssl."
+    die "Failed to find or verify openssl."
 fi
 
 if ! test -e $PASSWDFILE
