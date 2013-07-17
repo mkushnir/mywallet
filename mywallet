@@ -31,7 +31,7 @@ ENC="openssl enc -e -rc4 -a -A -pass fd:4 -salt"
 DEC="openssl enc -d -rc4 -a -A -pass fd:4 -salt"
 RAND="openssl rand -hex 8"
 
-PASSWDFILE=$HOME/.mywallet
+WALLETFILE=$HOME/.mywallet
 TMP=$HOME/.mywallet.tmp
 
 usage() {
@@ -74,7 +74,7 @@ enc() {
     _domain=$1
     _key=$2
     _data=$3
-    _old="`grep \"^${_domain} \" $PASSWDFILE`"
+    _old="`grep \"^${_domain} \" $WALLETFILE`"
     _override=0
     if test -n "${_old}"
     then
@@ -117,9 +117,9 @@ EOD
 
     if test ${_override} -eq 1
     then
-        grep -v "^${_domain} " $PASSWDFILE > $TMP
+        grep -v "^${_domain} " $WALLETFILE > $TMP
     else
-        cat $PASSWDFILE > $TMP
+        cat $WALLETFILE > $TMP
     fi
     _salt="`$RAND`"
     _encdata="${_domain} ${_salt} `echo -n \"${_salt}${_data}\" | ( openssl enc -e -rc4 -a -A -pass fd:4 -salt 4<<EOP
@@ -127,8 +127,8 @@ ${_key}
 EOP
 )`"
     echo ${_encdata} >> $TMP
-    mv $TMP $PASSWDFILE
-    chmod 600 $PASSWDFILE
+    mv $TMP $WALLETFILE
+    chmod 600 $WALLETFILE
 }
 
 #
@@ -149,17 +149,17 @@ then
     die "Failed to find or verify openssl."
 fi
 
-if ! test -e $PASSWDFILE
+if ! test -e $WALLETFILE
 then
-    touch $PASSWDFILE && chmod 600 $PASSWDFILE
+    touch $WALLETFILE && chmod 600 $WALLETFILE
 else
-    if ! test -f $PASSWDFILE
+    if ! test -f $WALLETFILE
     then
-        die "Not a file: $PASSWDFILE"
+        die "Not a file: $WALLETFILE"
     fi
-    if ! test "`stat -f '%p' $PASSWDFILE`" = "100600"
+    if ! test "`stat -f '%p' $WALLETFILE`" = "100600"
     then
-        die "Invalid mode on $PASSWDFILE"
+        die "Invalid mode on $WALLETFILE"
     fi
 fi
 
@@ -197,7 +197,7 @@ do
 
         show)
             read -p "Domain: [] " _domain
-            grep "^${_domain} " $PASSWDFILE
+            grep "^${_domain} " $WALLETFILE
         ;;
 
         get)
@@ -210,18 +210,18 @@ do
                         dec "$_domain" "$_salt" "$_data" | cat -v
                     fi
                 done
-            ) 3< $PASSWDFILE
+            ) 3< $WALLETFILE
         ;;
 
         del)
             read -p "Domain: " _domain
-            if grep "^${_domain} " $PASSWDFILE
+            if grep "^${_domain} " $WALLETFILE
             then
                 read -p "Delete? [No] " ANSWER
                 case $ANSWER in
                     [Yy][Ee][Ss])
-                        grep -v "^${_domain} " $PASSWDFILE > $TMP
-                        mv $TMP $PASSWDFILE
+                        grep -v "^${_domain} " $WALLETFILE > $TMP
+                        mv $TMP $WALLETFILE
                     ;;
                     *)
                         echo "Not deleted."
