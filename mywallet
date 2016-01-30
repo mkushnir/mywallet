@@ -197,7 +197,7 @@ do
 
         show)
             read -p "Domain: [] " _domain
-            grep "^${_domain} " $WALLETFILE
+            grep "^${_domain}" $WALLETFILE | awk '{print $1;}' | sort
         ;;
 
         get)
