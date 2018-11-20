@@ -27,15 +27,11 @@
 # SUCH DAMAGE.
 
 
-ENC="openssl enc -e -rc4 -a -A -pass fd:4 -salt"
-DEC="openssl enc -d -rc4 -a -A -pass fd:4 -salt"
-RAND="openssl rand -hex 8"
-
 WALLETFILE=$HOME/.mywallet
 TMP=$HOME/.mywallet.tmp
 
 usage() {
-    echo "Usage: `basename $0` [ add | show | get | del ]"
+    echo "Usage: `basename $0` [ add | show | get | del | dump ]"
     exit
 }
 
@@ -54,19 +50,82 @@ mytrap() {
     exit 0;
 }
 
-dec() {
-    local _domain _key _data _encdata _old _override _salt
-    _domain=$1
+
+_dec_v1() {
+    local _key _salt _data
+    _key=$1
     _salt=$2
     _data=$3
+    echo -n ${_data} | ( /usr/local/bin/openssl enc -d -rc4 -a -A -pass fd:4 -salt 4<<EOP
+${_key}
+EOP
+) | sed -e "s/${_salt}//"
+}
+
+
+_dec_v2() {
+    local _key _salt _data
+    _key=$1
+    _salt=$2
+    _data=$3
+    echo -n ${_data} | ( /usr/bin/openssl enc -d -rc4 -a -A -pass fd:4 -salt 2>/dev/null 4<<EOP
+${_key}
+EOP
+) | sed -e "s/${_salt}//"
+}
+
+_dec_v3() {
+    local _key _salt _data
+    _key=$1
+    _salt=$2
+    _data=$3
+    echo -n ${_data} | ( /usr/bin/openssl enc -pbkdf2 -d -rc4 -a -A -pass fd:4 -salt 4<<EOP
+${_key}
+EOP
+) | sed -e "s/${_salt}//"
+}
+
+dump() {
+    local _version _key _domain _salt _data _ddata
+    _version=$1
+    _key=$2
+    _domain=$3
+    _salt=$4
+    _data=$5
+
+    if test "${_version}" = 1
+    then
+        _ddata=`_dec_v1 ${_key} ${_salt} ${_data}`
+    elif test "${_version}" = 2
+    then
+        _ddata=`_dec_v2 ${_key} ${_salt} ${_data}`
+    else
+        _ddata=`_dec_v3 ${_key} ${_salt} ${_data}`
+    fi
+    echo "Entry: ${_version} ${_domain} ${_salt} ${_ddata}"
+}
+
+
+dec() {
+    local _version _domain _salt _data _key _ddata
+    _version=$1
+    _domain=$2
+    _salt=$3
+    _data=$4
     stty -echo
     read -p "Key: " _key
     stty echo
     echo
-    echo -n ${_data} | ( openssl enc -d -rc4 -a -A -pass fd:4 -salt 4<<EOP
-${_key}
-EOP
-) | sed -e "s/${_salt}//"
+    if test "${_version}" = 1
+    then
+        _ddata=`_dec_v1 ${_key} ${_salt} ${_data}`
+    elif test "${_version}" = 2
+    then
+        _ddata=`_dec_v2 ${_key} ${_salt} ${_data}`
+    else
+        _ddata=`_dec_v3 ${_key} ${_salt} ${_data}`
+    fi
+    echo "Data: ${_ddata}"
 }
 
 enc() {
@@ -84,15 +143,15 @@ ${_old}
 EOD
 
         echo
-        read -p "Override? [] " ANSWER
-        case $ANSWER in
+        read -p "Override? [] " _answer
+        case ${_answer} in
             [Yy][Ee][Ss])
                 _override=1
             ;;
 
             [Nn][Oo])
-                read -p "Confirm duplicate addition? [] " ANSWER
-                case $ANSWER in
+                read -p "Confirm duplicate addition? [] " _answer
+                case ${_answer} in
                     [Yy][Ee][Ss])
                         _override=0
                     ;;
@@ -121,8 +180,8 @@ EOD
     else
         cat $WALLETFILE > $TMP
     fi
-    _salt="`$RAND`"
-    _encdata="${_domain} ${_salt} `echo -n \"${_salt}${_data}\" | ( openssl enc -e -rc4 -a -A -pass fd:4 -salt 4<<EOP
+    _salt="`/usr/bin/openssl rand -hex 8`"
+    _encdata="${_version} ${_domain} ${_salt} `echo -n \"${_salt}${_data}\" | ( /usr/bin/openssl enc -pbkdf2 -e -rc4 -a -A -pass fd:4 -salt 4<<EOP
 ${_key}
 EOP
 )`"
@@ -143,11 +202,6 @@ then
     die "Not currently supported: $uname_s"
 fi
 
-ossl=`which openssl 2>/dev/null`
-if test -z "$ossl" -o "$ossl" != "/usr/bin/openssl"
-then
-    die "Failed to find or verify openssl."
-fi
 
 if ! test -e $WALLETFILE
 then
@@ -163,6 +217,7 @@ else
     fi
 fi
 
+_version=3
 _domain=
 _key=
 _data=
@@ -201,13 +256,14 @@ do
         ;;
 
         get)
-            read -p "Domain: [] " ANSWER
+            read -p "Domain: [] " _answer
             (
-                while read _domain _salt _data <&3
+                while read _version _domain _salt _data <&3
                 do
-                    if test "$ANSWER" = "${_domain}"
+                    if test "${_answer}" = "${_domain}"
                     then
-                        dec "$_domain" "$_salt" "$_data" | cat -v
+                        dec ${_version} "$_domain" "$_salt" "$_data" | cat -v
+                        break
                     fi
                 done
             ) 3< $WALLETFILE
@@ -217,8 +273,8 @@ do
             read -p "Domain: " _domain
             if grep "^${_domain} " $WALLETFILE
             then
-                read -p "Delete? [No] " ANSWER
-                case $ANSWER in
+                read -p "Delete? [No] " _answer
+                case ${_answer} in
                     [Yy][Ee][Ss])
                         grep -v "^${_domain} " $WALLETFILE > $TMP
                         mv $TMP $WALLETFILE
@@ -228,6 +284,18 @@ do
                     ;;
                 esac
             fi
+        ;;
+
+        dump)
+            stty -echo
+            read -p "Key: " _key
+            stty echo
+            (
+                while read _version _domain _salt _data <&3
+                do
+                    dump ${_version} ${_key} ${_domain} ${_salt} ${_data}
+                done
+            ) 3< $WALLETFILE
         ;;
 
         *)
