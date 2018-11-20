@@ -133,7 +133,7 @@ enc() {
     _domain=$1
     _key=$2
     _data=$3
-    _old="`grep \"^${_domain} \" $WALLETFILE`"
+    _old="`grep \"^[0-9][0-9]* ${_domain} \" $WALLETFILE`"
     _override=0
     if test -n "${_old}"
     then
@@ -252,7 +252,7 @@ do
 
         show)
             read -p "Domain: [] " _domain
-            grep "^${_domain}" $WALLETFILE | awk '{print $1;}' | sort
+            grep "^[0-9][0-9]* ${_domain}" $WALLETFILE | awk '{print $2;}' | sort
         ;;
 
         get)
@@ -263,7 +263,6 @@ do
                     if test "${_answer}" = "${_domain}"
                     then
                         dec ${_version} "$_domain" "$_salt" "$_data" | cat -v
-                        break
                     fi
                 done
             ) 3< $WALLETFILE
