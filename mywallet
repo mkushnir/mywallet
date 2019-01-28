@@ -31,9 +31,10 @@ WALLETFILE=$HOME/.mywallet
 TMP=$HOME/.mywallet.tmp
 
 usage() {
-    echo "Usage: `basename $0` [ add | show | get | del | dump ]"
+    echo "Usage: `basename $0` [ -y ] [ add | show | get | del | dump | export ]"
     exit
 }
+
 
 die() {
     echo $1
@@ -41,9 +42,11 @@ die() {
     exit;
 }
 
+
 cleanup() {
     rm -f $TMP
 }
+
 
 mytrap() {
     cleanup
@@ -74,6 +77,7 @@ EOP
 ) | sed -e "s/${_salt}//"
 }
 
+
 _dec_v3() {
     local _key _salt _data
     _key=$1
@@ -84,6 +88,7 @@ ${_key}
 EOP
 ) | sed -e "s/${_salt}//"
 }
+
 
 dump() {
     local _version _key _domain _salt _data _ddata
@@ -128,6 +133,7 @@ dec() {
     echo "Data: ${_ddata}"
 }
 
+
 enc() {
     local _domain _key _data _encdata _old _override _salt
     _domain=$1
@@ -135,43 +141,48 @@ enc() {
     _data=$3
     _old="`grep \"^[0-9][0-9]* ${_domain} \" $WALLETFILE`"
     _override=0
-    if test -n "${_old}"
+    if test -z "${_assumeyes}"
     then
-        echo
-        cat <<EOD
-${_old}
+        if test -n "${_old}"
+        then
+            echo
+            cat <<EOD
+    ${_old}
 EOD
 
-        echo
-        read -p "Override? [] " _answer
-        case ${_answer} in
-            [Yy][Ee][Ss])
-                _override=1
-            ;;
+            echo
+            read -p "Override? [] " _answer
+            case ${_answer} in
+                [Yy][Ee][Ss])
+                    _override=1
+                ;;
 
-            [Nn][Oo])
-                read -p "Confirm duplicate addition? [] " _answer
-                case ${_answer} in
-                    [Yy][Ee][Ss])
-                        _override=0
-                    ;;
+                [Nn][Oo])
+                    read -p "Confirm duplicate addition? [] " _answer
+                    case ${_answer} in
+                        [Yy][Ee][Ss])
+                            _override=0
+                        ;;
 
-                    [Nn][Oo])
-                        echo "No changes."
-                        return;
-                    ;;
+                        [Nn][Oo])
+                            echo "No changes."
+                            return;
+                        ;;
 
-                    *)
-                        die "Sould be yes or no. No changes."
-                    ;;
-                esac
-            ;;
+                        *)
+                            die "Sould be yes or no. No changes."
+                        ;;
+                    esac
+                ;;
 
-            *)
-                die "Sould be yes or no. No changes."
-            ;;
+                *)
+                    die "Sould be yes or no. No changes."
+                ;;
 
-        esac
+            esac
+        fi
+    else
+        _override=1
     fi
 
     if test ${_override} -eq 1
@@ -189,6 +200,42 @@ EOP
     mv $TMP $WALLETFILE
     chmod 600 $WALLETFILE
 }
+
+
+_enc() {
+    local _domain _key _data _encdata _salt
+    _domain=$1
+    _key=$2
+    _data=$3
+    _salt="`/usr/bin/openssl rand -hex 8`"
+    _encdata="${_version} ${_domain} ${_salt} `echo -n \"${_salt}${_data}\" | ( /usr/bin/openssl enc -pbkdf2 -e -rc4 -a -A -pass fd:4 -salt 4<<EOP
+${_key}
+EOP
+)`"
+    echo ${_encdata}
+}
+
+
+_export() {
+    local _inversion _key _domain _salt _data _ddata
+    _inversion=$1
+    _key=$2
+    _domain=$3
+    _salt=$4
+    _data=$5
+
+    if test "${_inversion}" = 1
+    then
+        _ddata=`_dec_v1 ${_key} ${_salt} ${_data}`
+    elif test "${_inversion}" = 2
+    then
+        _ddata=`_dec_v2 ${_key} ${_salt} ${_data}`
+    else
+        _ddata=`_dec_v3 ${_key} ${_salt} ${_data}`
+    fi
+    _enc ${_domain} ${_key} ${_ddata}
+}
+
 
 #
 # main
@@ -221,8 +268,9 @@ _version=3
 _domain=
 _key=
 _data=
+_assumeyes=
 
-args="`getopt '' $*`"
+args="`getopt 'y' $*`"
 if test $? -ne 0
 then
     usage
@@ -231,6 +279,10 @@ set -- $args
 for i
 do
     case "$i" in
+        -y)
+            shift
+            _assumeyes=yes
+        ;;
 
         --)
             shift;;
@@ -270,13 +322,14 @@ do
 
         del)
             read -p "Domain: " _domain
-            if grep "^${_domain} " $WALLETFILE
+            if grep "^[123] ${_domain} " $WALLETFILE
             then
                 read -p "Delete? [No] " _answer
                 case ${_answer} in
                     [Yy][Ee][Ss])
-                        grep -v "^${_domain} " $WALLETFILE > $TMP
+                        grep -v "^[123] ${_domain} " $WALLETFILE > $TMP
                         mv $TMP $WALLETFILE
+                        chmod 600 $WALLETFILE
                     ;;
                     *)
                         echo "Not deleted."
@@ -293,6 +346,21 @@ do
                 while read _version _domain _salt _data <&3
                 do
                     dump ${_version} ${_key} ${_domain} ${_salt} ${_data}
+                done
+            ) 3< $WALLETFILE
+        ;;
+
+        export)
+            read -p "File to export: " _fname
+            stty -echo
+            read -p "Key: " _key
+            stty echo
+            truncate -s0 ${_fname}
+            _assumeyes=yes
+            (
+                while read _inversion _domain _salt _data <&3
+                do
+                    _export ${_inversion} ${_key} ${_domain} ${_salt} ${_data} >>${_fname}
                 done
             ) 3< $WALLETFILE
         ;;
