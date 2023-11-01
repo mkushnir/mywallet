@@ -352,6 +352,13 @@ do
 
         export)
             read -p "File to export: " _fname
+
+            if test -e "${_fname}"
+            then
+                echo "Cannot override ${_fname}, exiting ..."
+                exit 1
+            fi
+
             stty -echo
             read -p "Key: " _key
             stty echo
